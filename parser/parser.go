@@ -24,7 +24,26 @@ const (
 	PRODUCT     //*
 	PREFIX      //-Xor!X
 	CALL        // myFunction(X)
+	INDEX       // array[index]
 )
+
+// The precedence values themselves are the integers with increasing value.
+// This table tells us that + (token.PLUS) and - (token.MINUS) have
+// the same precedence,
+// which is lower than the precedence
+// of * (token.ASTERISK) and / (token.SLASH).
+var precedences = map[token.Type]int{
+	token.EQ:       EQUALS,
+	token.NOT_EQ:   EQUALS,
+	token.LT:       LESSGREATER,
+	token.GT:       LESSGREATER,
+	token.PLUS:     SUM,
+	token.MINUS:    SUM,
+	token.SLASH:    PRODUCT,
+	token.ASTERISK: PRODUCT,
+	token.LPAREN:   CALL,
+	token.LBRACKET: INDEX,
+}
 
 type Parser struct {
 	// l is a pointer to an instance of the lexer.
@@ -62,6 +81,8 @@ func New(l *lexer.Lexer) *Parser {
 	p.registerPrefix(token.IF, p.parseIfExpression)
 	p.registerPrefix(token.FUNCTION, p.parseFunctionLiteral)
 	p.registerPrefix(token.STRING, p.parseStringLiteral)
+	p.registerPrefix(token.LBRACKET, p.parseArrayLiteral)
+	p.registerInfix(token.LBRACKET, p.parseIndexExpression)
 
 	// Register infix operators.
 	p.registerInfix(token.PLUS, p.parseInfixExpression)
@@ -387,19 +408,37 @@ func (p *Parser) parseStringLiteral() ast.Expression {
 	return &ast.StringLiteral{Token: p.curToken, Value: p.curToken.Literal}
 }
 
-// The precedence values themselves are the integers with increasing value.
-// This table tells us that + (token.PLUS) and - (token.MINUS) have
-// the same precedence,
-// which is lower than the precedence
-// of * (token.ASTERISK) and / (token.SLASH).
-var precedences = map[token.Type]int{
-	token.EQ:       EQUALS,
-	token.NOT_EQ:   EQUALS,
-	token.LT:       LESSGREATER,
-	token.GT:       LESSGREATER,
-	token.PLUS:     SUM,
-	token.MINUS:    SUM,
-	token.SLASH:    PRODUCT,
-	token.ASTERISK: PRODUCT,
-	token.LPAREN:   CALL,
+func (p *Parser) parseArrayLiteral() ast.Expression {
+	array := &ast.ArrayLiteral{Token: p.curToken}
+	array.Elements = p.parseExpressionList(token.RBRACKET)
+	return array
+}
+
+func (p *Parser) parseExpressionList(end token.Type) []ast.Expression {
+	list := []ast.Expression{}
+	if p.peekTokenIs(end) {
+		p.nextToken()
+		return list
+	}
+	p.nextToken()
+	list = append(list, p.parseExpression(LOWEST))
+	for p.peekTokenIs(token.COMMA) {
+		p.nextToken()
+		p.nextToken()
+		list = append(list, p.parseExpression(LOWEST))
+	}
+	if !p.expectPeek(end) {
+		return nil
+	}
+	return list
+}
+
+func (p *Parser) parseIndexExpression(left ast.Expression) ast.Expression {
+	exp := &ast.IndexExpression{Token: p.curToken, Left: left}
+	p.nextToken()
+	exp.Index = p.parseExpression(LOWEST)
+	if !p.expectPeek(token.RBRACKET) {
+		return nil
+	}
+	return exp
 }
